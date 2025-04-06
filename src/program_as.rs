@@ -126,23 +126,6 @@ impl Operand {
         Ok(compiled)
     }
 }
-
-// struct OperandContainer {
-// }
-// impl OperandContainer {
-//     fn new(operands: Vec<Operand>) -> Self {
-//         Self { operands }
-//     }
-//     /// checks if operand container length matches expected for opcode
-//     fn is_len(&self, expected: usize) -> bool {
-//         if self.operands.len() == expected {
-//             true
-//         } else {
-//             false
-//         }
-//     }
-
-// }
 pub enum Opcode {
     Ldi,
     Mov,
