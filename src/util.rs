@@ -1,3 +1,4 @@
+use crate::preprocessor::Metadata;
 /// extract an enclosure from a string
 /// eg: splitting an array definition content from a line.
 /// **usage**
@@ -10,7 +11,6 @@
 //     let result = String::new();
 // }
 use std::fmt;
-
 pub const ABSOLUTE: char = '$';
 pub const RELATIVE: char = '@';
 pub const LABEL: char = '!';
@@ -41,4 +41,107 @@ impl fmt::Debug for CompilerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.to_string())
     }
+}
+
+pub fn lex_file<'a>(
+    s: &'a str,
+    file_path: &'a str,
+    ignore_pattern: &[char],
+    split_pattern: &[char],
+    special_split_pattern: &[char], // split and include
+) -> Vec<Vec<(String, Metadata<'a>)>> {
+    let mut split: Vec<Vec<(String, Metadata)>> = Vec::new();
+    let mut split_line: Vec<(String, Metadata)> = Vec::new();
+    let mut ignore: bool = false;
+
+    let mut buf: String = String::new();
+    let s_lines = s.split('\n');
+
+    let mut line_number = 0;
+    let mut line_column = 0;
+    let mut line_column_start = 0;
+    for line in s_lines {
+        let mut skip_comment = false;
+        let mut last_char_was_start_of_comment = false;
+        line_column = 0;
+        line_number += 1;
+        for c in line.chars() {
+            if skip_comment {
+                println!("skipping {c}");
+                continue;
+            }
+            line_column += 1;
+            if !ignore {
+                if last_char_was_start_of_comment && c == '/' {
+                    skip_comment = true;
+                    let popped = split_line.pop();
+                    println!("popped {popped:?}");
+                    continue;
+                }
+                if c == '/' {
+                    println!("maybe comment");
+                    last_char_was_start_of_comment = true;
+                } else {
+                    last_char_was_start_of_comment = false;
+                }
+                match c {
+                    c if ignore_pattern.contains(&c) => {
+                        ignore = true;
+                        buf.push(c);
+                        continue;
+                    }
+                    c if split_pattern.contains(&c) => {
+                        if !buf.is_empty() {
+                            let metadata =
+                                Metadata::new(file_path, line, line_number, line_column_start);
+                            split_line.push((buf.clone(), metadata));
+                            buf.clear();
+                            line_column_start = line_column;
+                        }
+                    }
+
+                    c if special_split_pattern.contains(&c) => {
+                        if !buf.is_empty() {
+                            let metadata =
+                                Metadata::new(file_path, line, line_number, line_column_start);
+                            split_line.push((buf.clone(), metadata));
+                            buf.clear();
+                            line_column_start = line_column + 1;
+                        }
+
+                        buf.push(c);
+                        let metadata =
+                            Metadata::new(file_path, line, line_number, line_column_start);
+                        split_line.push((buf.clone(), metadata));
+                        buf.clear();
+                        line_column_start = line_column + 1;
+                    }
+
+                    _ => {
+                        buf.push(c);
+                    }
+                }
+            } else {
+                if ignore_pattern.contains(&c) {
+                    ignore = false;
+                    buf.push(c);
+                    continue;
+                } else {
+                    buf.push(c);
+                }
+            }
+        }
+        // Push the remaining buffer content if any
+        if !buf.is_empty() {
+            let metadata = Metadata::new(file_path, line, line_number, line_column_start);
+            split_line.push((buf.clone(), metadata));
+            buf.clear();
+        }
+        // Always push the line's tokens, even if empty
+        if !split_line.is_empty() {
+            split.push(split_line.clone());
+            split_line.clear();
+        }
+    }
+    split
 }
