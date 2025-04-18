@@ -1,3 +1,5 @@
+use string_interner::{DefaultStringInterner, DefaultSymbol};
+
 use crate::preprocessor::Metadata;
 /// extract an enclosure from a string
 /// eg: splitting an array definition content from a line.
@@ -42,6 +44,52 @@ impl fmt::Debug for CompilerError {
         write!(f, "{}", self.to_string())
     }
 }
+// pub type LexxedSource<'a> = ;
+pub struct LexxedSource {
+    pub inner: Vec<Vec<(DefaultSymbol, Metadata)>>,
+    pub str_db: DefaultStringInterner,
+}
+
+impl LexxedSource {
+    fn new(str_db: DefaultStringInterner) -> Self {
+        Self {
+            inner: Vec::new(),
+            str_db,
+        }
+    }
+    fn new_lex(
+        &mut self,
+        lexeme: &str,
+        file: &str,
+        line: &str,
+        line_number: usize,
+        line_column: usize,
+    ) {
+        let metadata = Metadata::new(
+            self.str_db.get_or_intern(file),
+            self.str_db.get_or_intern(line),
+            line_number,
+            line_column,
+        );
+        let interned_lexeme = self.str_db.get_or_intern(lexeme);
+        let current_line = if let Some(l) = self.inner.last_mut() {
+            l
+        } else {
+            self.new_line();
+            self.inner.last_mut().unwrap()
+        };
+        current_line.push((interned_lexeme, metadata));
+    }
+    fn delete_last_lex(&mut self) {
+        if let Some(l) = self.inner.last_mut() {
+            l.pop();
+        }
+    }
+
+    fn new_line(&mut self) {
+        self.inner.push(Vec::new())
+    }
+}
 
 pub fn lex_file<'a>(
     s: &'a str,
@@ -49,9 +97,10 @@ pub fn lex_file<'a>(
     ignore_pattern: &[char],
     split_pattern: &[char],
     special_split_pattern: &[char], // split and include
-) -> Vec<Vec<(String, Metadata<'a>)>> {
-    let mut split: Vec<Vec<(String, Metadata)>> = Vec::new();
-    let mut split_line: Vec<(String, Metadata)> = Vec::new();
+    str_db: DefaultStringInterner,
+) -> LexxedSource {
+    let mut lexxed_source = LexxedSource::new(str_db);
+
     let mut ignore: bool = false;
 
     let mut buf: String = String::new();
@@ -67,15 +116,13 @@ pub fn lex_file<'a>(
         line_number += 1;
         for c in line.chars() {
             if skip_comment {
-                println!("skipping {c}");
                 continue;
             }
             line_column += 1;
             if !ignore {
                 if last_char_was_start_of_comment && c == '/' {
                     skip_comment = true;
-                    let popped = split_line.pop();
-                    println!("popped {popped:?}");
+                    lexxed_source.delete_last_lex();
                     continue;
                 }
                 if c == '/' {
@@ -92,9 +139,7 @@ pub fn lex_file<'a>(
                     }
                     c if split_pattern.contains(&c) => {
                         if !buf.is_empty() {
-                            let metadata =
-                                Metadata::new(file_path, line, line_number, line_column_start);
-                            split_line.push((buf.clone(), metadata));
+                            lexxed_source.new_lex(&buf, file_path, line, line_number, line_column);
                             buf.clear();
                             line_column_start = line_column;
                         }
@@ -102,17 +147,13 @@ pub fn lex_file<'a>(
 
                     c if special_split_pattern.contains(&c) => {
                         if !buf.is_empty() {
-                            let metadata =
-                                Metadata::new(file_path, line, line_number, line_column_start);
-                            split_line.push((buf.clone(), metadata));
+                            lexxed_source.new_lex(&buf, file_path, line, line_number, line_column);
                             buf.clear();
                             line_column_start = line_column + 1;
                         }
 
                         buf.push(c);
-                        let metadata =
-                            Metadata::new(file_path, line, line_number, line_column_start);
-                        split_line.push((buf.clone(), metadata));
+                        lexxed_source.new_lex(&buf, file_path, line, line_number, line_column);
                         buf.clear();
                         line_column_start = line_column + 1;
                     }
@@ -131,17 +172,11 @@ pub fn lex_file<'a>(
                 }
             }
         }
-        // Push the remaining buffer content if any
         if !buf.is_empty() {
-            let metadata = Metadata::new(file_path, line, line_number, line_column_start);
-            split_line.push((buf.clone(), metadata));
+            lexxed_source.new_lex(&buf, file_path, line, line_number, line_column);
             buf.clear();
         }
-        // Always push the line's tokens, even if empty
-        if !split_line.is_empty() {
-            split.push(split_line.clone());
-            split_line.clear();
-        }
     }
-    split
+
+    lexxed_source
 }
