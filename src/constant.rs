@@ -1,12 +1,5 @@
-pub const SPECIAL_CHARS: &[char] = &[
-    '{', '}', '(', ')', '[', ']', ';', '=', '+', '-', '*', '/', '%', '>', '<', '!', '&', '|', '^',
-    ':', '.', ',',
-];
-pub const PREPROCESSOR: char = '#';
-pub const STR_LIT: char = '"';
-pub const CHR_LIT: char = '\'';
-pub const PTR: char = '&';
-pub const DELIMITER: char = ';';
-pub const SYSTEM_LIB: &str = "./ansl-systemlib/";
-pub const IGNORE_PATTERN: &[char] = &['\'', '"'];
-pub const SPLIT_PATTERN: &[char] = &[' ', '\n'];
+pub const COMMENT_CHAR: char = '/';
+// pub const IDEINTIFIER_DELIMITATORS :&[char] = [' ','\t','"','\'',''];
+pub const SYSTEM_LIB_ROOT: &str = "./ansl-systemlib/";
+pub const SOURCE_FILE_EXTENSION: &str = ".ansl";
+pub const NAME: &str = "anslc";

@@ -1,31 +1,57 @@
-use std::{
-    fs::{read_to_string, File},
-    process::exit,
-};
-
-use constant::{IGNORE_PATTERN, SPLIT_PATTERN};
-use preprocessor::tokenize_file;
-use string_interner::DefaultStringInterner;
-use {constant::SPECIAL_CHARS, preprocessor::tokenize};
-// use data_as::{DataDefinition, DataSection, DefInstr};
-// use program_as::{Instruction, Operand};
-use util::lex_file;
-mod ast;
+use crate::constant::NAME;
+use colorize::AnsiColor;
+use token::TokenStream;
 mod constant;
-mod data_as;
-mod intermediate_backend;
-mod preprocessor;
-mod program_as;
+mod token;
 mod util;
-
+static mut VERBOSE_FLAG: usize = 3;
 fn main() {
-    let f = "../ansl-src/hello_world.ansl";
-    let mut master_token_stream = match tokenize_file(f, DefaultStringInterner::new()) {
-        Ok(ts) => ts,
-        Err(err) => {
-            println!("{err}");
-            exit(0)
-        }
+    let env_var: Vec<String> = std::env::args().collect();
+    let entry_main = if let Some(s) = env_var.get(1) {
+        s
+    } else {
+        panic!("no file");
     };
-    println!("{master_token_stream}");
+    let mut token_stream = TokenStream::new();
+    match token_stream.parse_source_tree(entry_main) {
+        Ok(()) => (),
+        Err(e) => println!("{e}"),
+    };
+    println!("token stream :\n {token_stream}")
+}
+
+fn _verbose_println(msg: &str) {
+    unsafe {
+        if VERBOSE_FLAG >= 1 {
+            println!("{NAME}: {} {}", "verbose:".yellow(), msg)
+        }
+    }
+}
+fn _very_verbose_println(msg: &str) {
+    unsafe {
+        if VERBOSE_FLAG >= 2 {
+            println!("{NAME}: {} {}", "very-verbose:".yellow(), msg)
+        }
+    }
+}
+
+fn _very_very_verbose_println(msg: &str) {
+    unsafe {
+        if VERBOSE_FLAG >= 3 {
+            println!("{NAME}: {} {}", "very-very-verbose:".yellow(), msg)
+        }
+    }
+}
+
+#[macro_export]
+macro_rules! verbose_println {
+    ($($arg:tt)*) => (crate::_verbose_println(&format!($($arg)*)));
+}
+#[macro_export]
+macro_rules! very_verbose_println {
+    ($($arg:tt)*) => (crate::_very_verbose_println(&format!($($arg)*)));
+}
+#[macro_export]
+macro_rules! very_very_verbose_println {
+    ($($arg:tt)*) => (crate::_very_very_verbose_println(&format!($($arg)*)));
 }
