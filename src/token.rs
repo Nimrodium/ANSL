@@ -1,4 +1,11 @@
-use std::{collections::HashMap, fmt, fs::File, io::read_to_string};
+use std::{
+    collections::{HashMap, VecDeque},
+    fmt,
+    fs::File,
+    io::read_to_string,
+};
+
+use colorize::AnsiColor;
 
 use crate::{
     constant::{COMMENT_CHAR, SOURCE_FILE_EXTENSION, SYSTEM_LIB_ROOT},
@@ -97,7 +104,7 @@ impl fmt::Display for CompileError {
     }
 }
 #[derive(Clone)]
-struct MetadataReference {
+pub struct MetadataReference {
     file_name: String,
     line_number: usize,
     column: usize,
@@ -108,6 +115,24 @@ impl MetadataReference {
             file_name: file_name.to_string(),
             line_number,
             column,
+        }
+    }
+}
+impl fmt::Debug for MetadataReference {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "[{}:{}:{}]",
+            self.file_name, self.line_number, self.column
+        )
+    }
+}
+impl Default for MetadataReference {
+    fn default() -> Self {
+        Self {
+            file_name: String::new(),
+            line_number: 1,
+            column: 1,
         }
     }
 }
@@ -130,6 +155,7 @@ impl SourceFile {
     }
 
     fn get_line(&self, line_number: usize) -> Option<&String> {
+        println!("{line_number}");
         self.source.get(line_number - 1)
     }
 }
@@ -143,7 +169,7 @@ pub struct Source {
     sources: HashMap<String, SourceFile>,
 }
 impl Source {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             sources: HashMap::new(),
         }
@@ -157,10 +183,9 @@ impl Source {
         self.sources.insert(file.file_name.clone(), file);
     }
     fn merge(&mut self, other: Self) {
-        other
-            .sources
-            .into_iter()
-            .map(|(k, v)| self.sources.insert(k, v));
+        for (k, v) in other.sources {
+            self.sources.insert(k, v);
+        }
     }
     fn get_line(&self, file_name: &str, line_n: usize) -> Option<&String> {
         let file = if let Some(f) = self.sources.get(file_name) {
@@ -173,8 +198,23 @@ impl Source {
         file.get_line(line_n)
     }
 }
-#[derive(Debug, Clone)]
-enum TokenKind {
+#[derive(Debug, Clone, PartialEq)]
+
+pub enum PrimitiveType {
+    Unsigned8,
+    Unsigned16,
+    Unsigned32,
+    Unsigned64,
+
+    Signed8,
+    Signed16,
+    Signed32,
+    Signed64,
+
+    Float32,
+}
+#[derive(Debug, Clone, PartialEq)]
+pub enum TokenKind {
     //preprocessor
     Include,
 
@@ -196,6 +236,9 @@ enum TokenKind {
     KWcontinue,
     KWstruct,
     KWenum,
+    KWconst,
+    KWstatic,
+    Primitive(String),
 
     Slash,
     Plus,
@@ -222,12 +265,18 @@ enum TokenKind {
     Apostro,
     Greater,
     Lesser,
+
     Compare,
     GreaterEq,
     LesserEq,
+    DoublePipe,
+    Arrow,
+
     Pipe,
     BackTick,
     Grave,
+
+    EOF,
 }
 impl TokenKind {
     fn match_keyword(s: &str) -> Option<Self> {
@@ -245,6 +294,17 @@ impl TokenKind {
             "continue" => Some(Self::KWcontinue),
             "struct" => Some(Self::KWstruct),
             "enum" => Some(Self::KWenum),
+            "const" => Some(Self::KWconst),
+            "static" => Some(Self::KWstatic),
+            "u8" => Some(Self::Primitive(s.to_string())),
+            "u16" => Some(Self::Primitive(s.to_string())),
+            "u32" => Some(Self::Primitive(s.to_string())),
+            "u64" => Some(Self::Primitive(s.to_string())),
+            "i8" => Some(Self::Primitive(s.to_string())),
+            "i16" => Some(Self::Primitive(s.to_string())),
+            "i32" => Some(Self::Primitive(s.to_string())),
+            "i64" => Some(Self::Primitive(s.to_string())),
+            "f32" => Some(Self::Primitive(s.to_string())),
 
             "include" => Some(Self::Include),
             _ => None,
@@ -253,9 +313,9 @@ impl TokenKind {
 }
 #[derive(Clone)]
 pub struct Token {
-    kind: TokenKind,
-    lexeme: String,
-    metadata: MetadataReference,
+    pub kind: TokenKind,
+    pub lexeme: String,
+    pub metadata: MetadataReference,
 }
 impl Token {
     fn new(kind: TokenKind, lexeme: &str, metadata: MetadataReference) -> Self {
@@ -265,12 +325,30 @@ impl Token {
             metadata,
         }
     }
+    /// returns EOF sentinel token
+    fn eof() -> Self {
+        Self {
+            kind: TokenKind::EOF,
+            lexeme: <String as std::default::Default>::default(),
+            metadata: MetadataReference::default(),
+        }
+    }
+    // fn dummy() -> Self {
+    //     Self {
+    //         kind: TokenKind::Dummy,
+    //         lexeme: String::new(),
+    //         metadata: MetadataReference::new(String::new().as_str(), 0, 0),
+    //     }
+    // }
+    pub fn is(&self, kind: TokenKind) -> bool {
+        self.kind == kind
+    }
 }
 impl fmt::Display for Token {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "<{:?}::{}::[{}:{}]>",
+            "<{:?} `{}` [{}:{}]>",
             self.kind, self.lexeme, self.metadata.line_number, self.metadata.column
         )
     }
@@ -299,17 +377,19 @@ enum Stream {
 }
 
 pub struct TokenStream {
-    tokens: Vec<Token>,
-    source: Source,
+    tokens: VecDeque<Token>,
+
+    pub source: Source,
 }
 impl TokenStream {
     pub fn new() -> Self {
         Self {
-            tokens: Vec::new(),
+            tokens: VecDeque::new(),
+
             source: Source::new(),
         }
     }
-    pub fn parse_source_tree(&mut self, file_path: &str) -> Result<(), CompileError> {
+    pub fn tokenize_source_tree(&mut self, file_path: &str) -> Result<(), CompileError> {
         very_verbose_println!("entry file : <{file_path}>");
         // self.source.open_file(file_path)?;
         let mut tokenizer = Tokenizer::new();
@@ -320,8 +400,27 @@ impl TokenStream {
                 .map_err(|e| e.fmt_metadata(&self.source))?;
             self.tokens.extend(token_stream);
         }
-
+        self.source.merge(tokenizer.sources);
+        self.tokens.push_back(Token::eof());
         Ok(())
+    }
+
+    pub fn next(&mut self) -> Option<Token> {
+        self.tokens.pop_front()
+    }
+    pub fn peek(&self) -> Option<&Token> {
+        self.tokens.get(0)
+    }
+    pub fn peek_is(&self, kind: TokenKind) -> bool {
+        if let Some(t) = self.peek() {
+            t.kind == kind
+        } else {
+            false
+        }
+    }
+
+    pub fn eof(&self) -> bool {
+        self.peek_is(TokenKind::EOF)
     }
 }
 
@@ -329,7 +428,7 @@ impl fmt::Display for TokenStream {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut s = String::new();
         for token in &self.tokens {
-            s.push_str(token.to_string().as_str());
+            s.push_str((token.to_string() + "\n").as_str());
         }
         write!(f, "{s}")
     }
@@ -358,7 +457,7 @@ impl Tokenizer {
         std::mem::take(&mut self.token_stream)
     }
     fn push_token(&mut self, token: Token) {
-        very_very_verbose_println!("pushing token {token}");
+        // very_very_verbose_println!("pushing token {token}");
         match self.active_stream {
             Stream::Master => self.token_stream.push(token),
             Stream::Preprocessor => self.preprocessor_stream.push(token),
@@ -372,7 +471,7 @@ impl Tokenizer {
         let sub_file = tokenizer.sources.open_file(file)?;
         for (n, line) in sub_file.source.clone().iter().enumerate() {
             let token_stream = tokenizer
-                .parse_line(file, line, n)
+                .parse_line(file, line, n + 1)
                 .map_err(|e| e.fmt_metadata(&tokenizer.sources))?;
             self.token_stream.extend(token_stream);
         }
@@ -549,14 +648,6 @@ impl Tokenizer {
                             );
                             self.push_token(token);
                         }
-                        '-' => {
-                            let token = Token::new(
-                                TokenKind::Dash,
-                                "-",
-                                MetadataReference::new(file_name, line_n, self.lexeme_column_start),
-                            );
-                            self.push_token(token);
-                        }
                         '+' => {
                             let token = Token::new(
                                 TokenKind::Plus,
@@ -667,8 +758,16 @@ impl Tokenizer {
                             );
                             self.push_token(token);
                         }
+                        '\'' => {
+                            let token = Token::new(
+                                TokenKind::Apostro,
+                                "&",
+                                MetadataReference::new(file_name, line_n, self.lexeme_column_start),
+                            );
+                            self.push_token(token);
+                        }
 
-                        '<' | '>' | '=' => self.state = State::DoubleCharToken(chr),
+                        '<' | '>' | '=' | '|' | '-' => self.state = State::DoubleCharToken(chr),
                         ' ' | '\t' => continue,
                         _ => {
                             self.state = State::BuildingIdentifier;
@@ -676,27 +775,44 @@ impl Tokenizer {
                         }
                     }
                 }
-                State::DoubleCharToken(ch) => {
+
+                State::DoubleCharToken(ch2) => {
                     let kind = match chr {
-                        '=' => match ch {
+                        '=' => match ch2 {
                             '<' => TokenKind::LesserEq,
                             '>' => TokenKind::GreaterEq,
                             '=' => TokenKind::Compare,
+                            '|' => TokenKind::DoublePipe,
+                            '-' => {
+                                advance = false;
+                                TokenKind::Dash
+                            }
+                            // '-' => TokenKind::EqDash,
+                            // '+' => TokenKind::EqPlus,
+                            // '*' => TokenKind::
                             _ => unreachable!(),
                         },
+
+                        '>' => match ch2 {
+                            '-' => TokenKind::Arrow,
+                            _ => unreachable!(),
+                        },
+
                         _ => {
                             advance = false;
-                            match ch {
+                            match ch2 {
                                 '<' => TokenKind::Lesser,
                                 '>' => TokenKind::Greater,
                                 '=' => TokenKind::Assign,
+                                '|' => TokenKind::Pipe,
+                                '-' => TokenKind::Dash,
                                 _ => unreachable!(),
                             }
                         }
                     };
                     let token = Token::new(
                         kind,
-                        &self.active_lexeme,
+                        ch2.to_string().as_str(),
                         MetadataReference::new(file_name, line_n, self.lexeme_column_start),
                     );
                     self.push_token(token);

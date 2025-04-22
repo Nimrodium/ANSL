@@ -1,23 +1,29 @@
 use crate::constant::NAME;
+use ast::root_parse;
 use colorize::AnsiColor;
 use token::TokenStream;
+mod ast;
 mod constant;
 mod token;
 mod util;
 static mut VERBOSE_FLAG: usize = 3;
 fn main() {
-    let env_var: Vec<String> = std::env::args().collect();
-    let entry_main = if let Some(s) = env_var.get(1) {
+    let cli_args: Vec<String> = std::env::args().collect();
+    let entry_main = if let Some(s) = cli_args.get(1) {
         s
     } else {
         panic!("no file");
     };
     let mut token_stream = TokenStream::new();
-    match token_stream.parse_source_tree(entry_main) {
+    match token_stream.tokenize_source_tree(entry_main) {
         Ok(()) => (),
         Err(e) => println!("{e}"),
     };
-    println!("token stream :\n {token_stream}")
+    println!("token stream :\n {token_stream}");
+    match root_parse(token_stream) {
+        Ok(ast) => println!("{ast:?}"),
+        Err(e) => println!("{e}"),
+    };
 }
 
 fn _verbose_println(msg: &str) {

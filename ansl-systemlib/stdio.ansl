@@ -1,3 +1,4 @@
-fn INCLUDED_FUNCTION(){
-    let louis : u8 = 1+2;
+const louis: u8 = 1;
+fn INCLUDED_FUNCTION() {
+    let louis: u8 = 1 + 2;
 }
